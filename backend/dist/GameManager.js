@@ -1,48 +1,51 @@
 "use strict";
-// interface Game{
-//     id: number;
-//     name: string;
-//     player1:WebSocket;
-//     player2:WebSocket;
-// }
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GameManager = void 0;
-const Game_1 = require("./Game");
 const messages_1 = require("./messages");
+const Game_1 = require("./Game");
 class GameManager {
     constructor() {
         this.games = [];
-        this.pendingUsers = null;
+        this.pendingUser = null;
         this.users = [];
     }
     addUser(socket) {
         this.users.push(socket);
-        this.handleMessage(socket);
+        console.log("User added:", socket);
+        this.addHandler(socket);
     }
     removeUser(socket) {
         this.users = this.users.filter(user => user !== socket);
-        //stop game cause user left
+        console.log("User removed:", socket);
+        // Handle game stop or cleanup if necessary
     }
-    handleMessage(socket) {
-        socket.on("message", data => {
+    addHandler(socket) {
+        socket.on("message", (data) => {
             const message = JSON.parse(data.toString());
+            console.log("Message received from client:", message);
             if (message.type === messages_1.INIT_GAME) {
-                if (this.pendingUsers) {
-                    //start a game 
-                    const game = new Game_1.Game(this.pendingUsers, socket);
+                if (this.pendingUser) {
+                    const game = new Game_1.Game(this.pendingUser, socket);
                     this.games.push(game);
-                    this.pendingUsers = null;
+                    console.log("Game started between:", this.pendingUser, "and", socket);
+                    this.pendingUser = null;
                 }
                 else {
-                    this.pendingUsers = socket;
+                    this.pendingUser = socket;
+                    console.log("Pending user set:", socket);
                 }
             }
             if (message.type === messages_1.MOVE) {
+                console.log("Move message received");
                 const game = this.games.find(game => game.player1 === socket || game.player2 === socket);
                 if (game) {
-                    game.makeMove(socket, message.move);
+                    console.log("Making move in game");
+                    game.makeMove(socket, message.payload.move);
                 }
             }
+        });
+        socket.on("close", () => {
+            this.removeUser(socket);
         });
     }
 }

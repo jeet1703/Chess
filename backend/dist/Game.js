@@ -24,42 +24,43 @@ class Game {
         }));
     }
     makeMove(socket, move) {
-        //validate the type of move using zod
-        if (this.moveCount % 2 === 0 && socket != this.player1) {
+        console.log("Received move:", move);
+        if (this.moveCount % 2 === 0 && socket !== this.player1) {
+            console.log("Not player 1's turn");
             return;
         }
-        if (this.moveCount % 2 === 1 && socket != this.player2) {
+        if (this.moveCount % 2 === 1 && socket !== this.player2) {
+            console.log("Not player 2's turn");
             return;
         }
         try {
             this.board.move(move);
-            this.moveCount++;
         }
         catch (e) {
+            console.log(e);
             return;
         }
+        this.moveCount++;
+        console.log("Move count:", this.moveCount);
         if (this.board.isGameOver()) {
-            this.player1.emit(JSON.stringify({
-                type: messages_1.GAME_OVER,
-                payload: {
-                    winner: this.board.turn() === "w" ? "black" : "white",
-                }
-            }));
-        }
-        if (this.board.moves().length % 2 === 0) {
-            this.player2.send(JSON.stringify({
-                type: messages_1.MOVE,
-                payload: move
-            }));
-        }
-        else {
+            const winner = this.board.turn() === "w" ? "black" : "white";
+            console.log("Game over, winner:", winner);
             this.player1.send(JSON.stringify({
-                type: messages_1.MOVE,
-                payload: move
+                type: messages_1.GAME_OVER,
+                payload: { winner }
             }));
+            this.player2.send(JSON.stringify({
+                type: messages_1.GAME_OVER,
+                payload: { winner }
+            }));
+            return;
         }
-        //send the updated board to both players
-        //if the game is over send the game over message to both players  
+        const opponent = socket === this.player1 ? this.player2 : this.player1;
+        opponent.send(JSON.stringify({
+            type: messages_1.MOVE,
+            payload: { move }
+        }));
+        console.log("Move sent to opponent");
     }
 }
 exports.Game = Game;

@@ -1,61 +1,59 @@
-// interface Game{
-//     id: number;
-//     name: string;
-//     player1:WebSocket;
-//     player2:WebSocket;
-// }
-
 import { WebSocket } from "ws";
-import { Game } from "./Game";
 import { INIT_GAME, MOVE } from "./messages";
+import { Game } from "./Game";
 
-
-
-export class GameManager{
+export class GameManager {
     private games: Game[];
-    private pendingUsers : WebSocket | null;
-    private users : WebSocket[];
+    private pendingUser: WebSocket | null;
+    private users: WebSocket[];
 
-
-    constructor(){
+    constructor() {
         this.games = [];
-        this.pendingUsers = null;
+        this.pendingUser = null;
         this.users = [];
     }
 
-    addUser(socket : WebSocket){
+    addUser(socket: WebSocket) {
         this.users.push(socket);
-        this.handleMessage(socket);
+        console.log("User added:", socket);
+        this.addHandler(socket);
     }
 
-    removeUser(socket : WebSocket){
+    removeUser(socket: WebSocket) {
         this.users = this.users.filter(user => user !== socket);
-        //stop game cause user left
+        console.log("User removed:", socket);
+        // Handle game stop or cleanup if necessary
     }
-    private handleMessage(socket : WebSocket){
-        socket.on("message" , data => {
+
+    private addHandler(socket: WebSocket) {
+        socket.on("message", (data) => {
             const message = JSON.parse(data.toString());
-            
-            if(message.type === INIT_GAME){
-                if(this.pendingUsers){
-                    //start a game 
-                    const game = new Game(this.pendingUsers , socket);
+            console.log("Message received from client:", message);
+
+            if (message.type === INIT_GAME) {
+                if (this.pendingUser) {
+                    const game = new Game(this.pendingUser, socket);
                     this.games.push(game);
-                    this.pendingUsers = null;
-
-                }
-                else{
-                    this.pendingUsers = socket;
+                    console.log("Game started between:", this.pendingUser, "and", socket);
+                    this.pendingUser = null;
+                } else {
+                    this.pendingUser = socket;
+                    console.log("Pending user set:", socket);
                 }
             }
 
-            if(message.type === MOVE){
+            if (message.type === MOVE) {
+                console.log("Move message received");
                 const game = this.games.find(game => game.player1 === socket || game.player2 === socket);
-                if(game){
-                    game.makeMove(socket, message.move)
+                if (game) {
+                    console.log("Making move in game");
+                    game.makeMove(socket, message.payload.move);
                 }
             }
-                
-        })
+        });
+
+        socket.on("close", () => {
+            this.removeUser(socket);
+        });
     }
 }
