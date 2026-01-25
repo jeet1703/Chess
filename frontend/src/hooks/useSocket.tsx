@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 // Use environment variable for WebSocket URL
 // Set VITE_WS_URL in .env (local) or .env.production (deployed)
-const WS_URL = import.meta.env.VITE_WS_URL || "wss://chess-backend-ltvw.onrender.com";
+const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8080";
 
 export const useSocket = () => {
     const [socket, setSocket] = useState<WebSocket | null>(null);
