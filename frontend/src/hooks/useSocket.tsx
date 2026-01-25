@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-const WS_URL = "ws://localhost:8080";
+// Use wss:// for secure WebSocket connection to Render
+const WS_URL = "wss://chess-backend-ltvw.onrender.com";
 
 export const useSocket = () => {
     const [socket, setSocket] = useState<WebSocket | null>(null);
