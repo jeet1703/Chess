@@ -1,27 +1,19 @@
-import React from 'react'
 import './App.css'
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import {Landing} from './screens/Landing';
-import {Game} from './screens/Game';
+import { Landing } from './screens/Landing';
+import { Game } from './screens/Game';
 
-
-
-const hello = () => {
+const App = () => {
   return (
-    
-    <div className=' h-screen bg-slate-900'>
-    <BrowserRouter >
-      <Routes>
-        <Route path="/" element={<Landing/>} /> 
-        <Route path="/game" element={<Game/>} /> 
-      </Routes>
-    </BrowserRouter>
-    
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/game" element={<Game />} />
+        </Routes>
+      </BrowserRouter>
     </div>
-    
-    
-    
   )
 }
 
-export default hello
+export default App
