@@ -1,229 +1,149 @@
 import { Chess, Color, PieceSymbol, Square } from "chess.js";
-import { useState, useMemo } from "react";
-import { MOVE } from "../screens/Game";
+import { CSSProperties, useMemo, useRef, useState } from "react";
+
+export type BoardState = ({ square: Square; type: PieceSymbol; color: Color } | null)[][];
+export interface BoardMove { from: Square; to: Square; promotion?: string }
 
 interface ChessBoardProps {
   chess: Chess;
-  setBoard: React.Dispatch<
-    React.SetStateAction<
-      ({
-        square: Square;
-        type: PieceSymbol;
-        color: Color;
-      } | null)[][]
-    >
-  >;
-  board: ({
-    square: Square;
-    type: PieceSymbol;
-    color: Color;
-  } | null)[][];
-  socket: WebSocket;
+  board: BoardState;
   playerColor?: 'white' | 'black';
+  interactive?: boolean;
+  onMove?: (move: BoardMove) => void;
+  className?: string;
 }
+
+const FILES = 'abcdefgh';
 
 export const ChessBoard = ({
   chess,
   board,
-  socket,
-  setBoard,
-  playerColor = 'white'
+  playerColor = 'white',
+  interactive = false,
+  onMove,
+  className = 'w-[min(92vw,600px)]'
 }: ChessBoardProps) => {
-  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
-  const [lastMove, setLastMove] = useState<{ from: Square; to: Square } | null>(null);
+  const [selected, setSelected] = useState<Square | null>(null);
+  const flipped = playerColor === 'black';
+  const myColor: Color = flipped ? 'b' : 'w';
 
-  // File and rank labels - flip based on player color
-  const files = playerColor === 'white'
-    ? ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-    : ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'];
-  const ranks = playerColor === 'white'
-    ? ['8', '7', '6', '5', '4', '3', '2', '1']
-    : ['1', '2', '3', '4', '5', '6', '7', '8'];
+  const history = chess.history({ verbose: true });
+  const last = history[history.length - 1];
 
-  // Get the board in correct orientation
-  const displayBoard = useMemo(() => {
-    if (playerColor === 'black') {
-      // Reverse both rows and columns for black player
-      return board.map(row => [...row].reverse()).reverse();
-    }
-    return board;
-  }, [board, playerColor]);
+  // Animate a move only when history grows (not after an undo or reset).
+  const seenLen = useRef(history.length);
+  const animLen = useRef(-1);
+  if (history.length > seenLen.current) animLen.current = history.length;
+  seenLen.current = history.length;
+  const animating = !!last && animLen.current === history.length;
 
-  // Calculate valid moves for selected piece
-  const validMoves = useMemo(() => {
-    if (!selectedSquare) return [];
-    const moves = chess.moves({ square: selectedSquare, verbose: true });
-    return moves.map(move => move.to);
-  }, [chess, selectedSquare]);
+  // Squares that slide this render: the moved piece, plus the rook when castling.
+  const slides = new Map<Square, Square>();
+  if (animating && last) {
+    slides.set(last.to, last.from);
+    const back = last.color === 'w' ? '1' : '8';
+    if (last.flags.includes('k')) slides.set(`f${back}` as Square, `h${back}` as Square);
+    if (last.flags.includes('q')) slides.set(`d${back}` as Square, `a${back}` as Square);
+  }
 
-  const handleSquareClick = (squareRepresentation: Square, piece: { color: Color; type: PieceSymbol } | null) => {
-    // Check if it's player's turn
-    const isMyTurn = (chess.turn() === 'w' && playerColor === 'white') ||
-      (chess.turn() === 'b' && playerColor === 'black');
+  const targets = useMemo(() => {
+    if (!selected) return [] as Square[];
+    return chess.moves({ square: selected, verbose: true }).map((m) => m.to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chess, selected, history.length]);
 
-    if (!selectedSquare) {
-      // Only allow selecting own pieces and only on player's turn
-      if (piece && isMyTurn &&
-        ((playerColor === 'white' && piece.color === 'w') ||
-          (playerColor === 'black' && piece.color === 'b'))) {
-        setSelectedSquare(squareRepresentation);
-      }
-    } else {
-      // If clicking on own piece, change selection
-      if (piece &&
-        ((playerColor === 'white' && piece.color === 'w') ||
-          (playerColor === 'black' && piece.color === 'b'))) {
-        setSelectedSquare(squareRepresentation);
-        return;
-      }
+  let checkSquare: Square | null = null;
+  if (chess.inCheck()) {
+    const turn = chess.turn();
+    board.forEach((row) => row.forEach((p) => {
+      if (p && p.type === 'k' && p.color === turn) checkSquare = p.square;
+    }));
+  }
 
-      // Attempt move
-      const move = {
-        from: selectedSquare,
-        to: squareRepresentation,
-        promotion: 'q' // Default to queen promotion
-      };
+  const canAct = interactive && chess.turn() === myColor;
 
-      // Try the move locally first to validate
-      try {
-        const result = chess.move(move);
-        if (result) {
-          // Valid move - send to server
-          socket.send(
-            JSON.stringify({
-              type: MOVE,
-              payload: { move }
-            })
-          );
-          setLastMove({ from: selectedSquare, to: squareRepresentation });
-          setBoard(chess.board());
-        }
-      } catch (e) {
-        // Invalid move - just reset selection
-        console.log("Invalid move attempted");
-      }
-
-      setSelectedSquare(null);
-    }
+  const displayPos = (sq: Square) => {
+    const file = sq.charCodeAt(0) - 97;
+    const rank = Number(sq[1]);
+    return { col: flipped ? 7 - file : file, row: flipped ? rank - 1 : 8 - rank };
   };
 
-  const isSquareSelected = (square: Square) => selectedSquare === square;
-  const isLastMoveSquare = (square: Square) =>
-    lastMove && (lastMove.from === square || lastMove.to === square);
-  const isValidMoveSquare = (square: Square) => validMoves.includes(square);
-
-  // Calculate square representation based on display position
-  const getSquareRepresentation = (displayRow: number, displayCol: number): Square => {
-    if (playerColor === 'black') {
-      // For black, we need to map back from flipped display coordinates
-      const actualRow = 7 - displayRow;
-      const actualCol = 7 - displayCol;
-      return (String.fromCharCode(97 + actualCol) + (8 - actualRow)) as Square;
+  const handleClick = (sq: Square, piece: BoardState[number][number]) => {
+    if (!canAct) { setSelected(null); return; }
+    if (piece && piece.color === myColor) {
+      setSelected(sq === selected ? null : sq);
+      return;
     }
-    return (String.fromCharCode(97 + displayCol) + (8 - displayRow)) as Square;
+    if (selected && targets.includes(sq)) {
+      const move = { from: selected, to: sq, promotion: 'q' };
+      try {
+        chess.move(move);
+        onMove?.(move);
+      } catch {
+        // chess.js rejected the move; drop the selection
+      }
+    }
+    setSelected(null);
   };
 
   return (
-    <div className="flex flex-col items-center animate-fade-in">
-      {/* Board container with shadow and border */}
-      <div className="relative rounded-lg overflow-hidden shadow-2xl border-4 border-slate-700">
-        {/* Top file labels */}
-        <div className="flex bg-slate-800">
-          <div className="w-6"></div> {/* Corner spacer */}
-          {files.map((file) => (
-            <div key={file} className="w-14 h-6 flex items-center justify-center text-slate-400 text-sm font-medium">
-              {file}
+    <div className={`relative aspect-square rounded-lg overflow-hidden board-shadow select-none ${className}`}>
+      <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
+        {Array.from({ length: 64 }, (_, idx) => {
+          const row = Math.floor(idx / 8);
+          const col = idx % 8;
+          const file = flipped ? 7 - col : col;
+          const rank = flipped ? row + 1 : 8 - row;
+          const sq = `${FILES[file]}${rank}` as Square;
+          const piece = board[8 - rank][file];
+          const light = (file + rank) % 2 === 0; // a1 (0+1) is dark, h1 (7+1) is light
+          const isTarget = targets.includes(sq);
+          const slideFrom = slides.get(sq);
+          const ownPiece = !!piece && piece.color === myColor;
+
+          let slideStyle: CSSProperties | undefined;
+          if (slideFrom) {
+            const a = displayPos(slideFrom);
+            const b = displayPos(sq);
+            slideStyle = {
+              '--dx': `${(a.col - b.col) * 100}%`,
+              '--dy': `${(a.row - b.row) * 100}%`,
+            } as CSSProperties;
+          }
+
+          return (
+            <div
+              key={sq}
+              onClick={() => handleClick(sq, piece)}
+              className={`relative ${light ? 'sq-light' : 'sq-dark'} ${canAct && (ownPiece || isTarget) ? 'cursor-pointer sq-hover' : ''}`}
+            >
+              {last && (last.from === sq || last.to === sq) && <div key={`l${history.length}`} className="sq-overlay sq-last" />}
+              {selected === sq && <div className="sq-overlay sq-selected" />}
+              {checkSquare === sq && <div className="sq-overlay sq-check" />}
+
+              {col === 0 && (
+                <span className={`coord left-[5%] top-[5%] ${light ? 'text-[var(--sq-dark)]' : 'text-[var(--sq-light)]'}`}>{rank}</span>
+              )}
+              {row === 7 && (
+                <span className={`coord right-[5%] bottom-[5%] ${light ? 'text-[var(--sq-dark)]' : 'text-[var(--sq-light)]'}`}>{FILES[file]}</span>
+              )}
+
+              {piece && (
+                <img
+                  key={slideFrom ? `${sq}-${history.length}` : sq}
+                  className={`piece ${slideFrom ? 'piece-slide' : ''} ${canAct && ownPiece ? 'piece-lift' : ''}`}
+                  style={slideStyle}
+                  src={`/${piece.color}${piece.type}.png`}
+                  alt={`${piece.color === 'w' ? 'white' : 'black'} ${piece.type}`}
+                  draggable={false}
+                />
+              )}
+
+              {isTarget && (piece ? <div className="move-ring" /> : <div className="move-dot" />)}
             </div>
-          ))}
-          <div className="w-6"></div>
-        </div>
-
-        {/* Board rows */}
-        {displayBoard.map((row, i) => (
-          <div key={i} className="flex">
-            {/* Left rank label */}
-            <div className="w-6 h-14 flex items-center justify-center text-slate-400 text-sm font-medium bg-slate-800">
-              {ranks[i]}
-            </div>
-
-            {/* Squares */}
-            {row.map((square, j) => {
-              const squareRepresentation = getSquareRepresentation(i, j);
-
-              // Determine if square should be light or dark based on actual position
-              const actualRow = playerColor === 'black' ? 7 - i : i;
-              const actualCol = playerColor === 'black' ? 7 - j : j;
-              const isLight = (actualRow + actualCol) % 2 === 0;
-
-              const isSelected = isSquareSelected(squareRepresentation);
-              const isLastMove = isLastMoveSquare(squareRepresentation);
-              const isValidMove = isValidMoveSquare(squareRepresentation);
-
-              return (
-                <div
-                  onClick={() => handleSquareClick(squareRepresentation, square)}
-                  key={j}
-                  className={`
-                    w-14 h-14 flex items-center justify-center cursor-pointer
-                    transition-all duration-150 relative
-                    ${isLight ? 'square-light' : 'square-dark'}
-                    ${isSelected ? 'square-selected' : ''}
-                    ${isLastMove && !isSelected ? 'square-highlight' : ''}
-                    hover:brightness-110
-                  `}
-                >
-                  {/* Valid move indicator */}
-                  {isValidMove && !square && (
-                    <div className="absolute w-4 h-4 rounded-full bg-black/20"></div>
-                  )}
-                  {isValidMove && square && (
-                    <div className="absolute inset-0 border-4 border-black/30 rounded-sm"></div>
-                  )}
-
-                  {square && (
-                    <img
-                      className="w-11 h-11 piece-img relative z-10"
-                      src={`/${square.color}${square.type}.png`}
-                      alt={`${square.color === "b" ? "black" : "white"} ${square.type}`}
-                      draggable={false}
-                    />
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Right rank label */}
-            <div className="w-6 h-14 flex items-center justify-center text-slate-400 text-sm font-medium bg-slate-800">
-              {ranks[i]}
-            </div>
-          </div>
-        ))}
-
-        {/* Bottom file labels */}
-        <div className="flex bg-slate-800">
-          <div className="w-6"></div>
-          {files.map((file) => (
-            <div key={file} className="w-14 h-6 flex items-center justify-center text-slate-400 text-sm font-medium">
-              {file}
-            </div>
-          ))}
-          <div className="w-6"></div>
-        </div>
+          );
+        })}
       </div>
-
-      {/* Selected square indicator */}
-      {selectedSquare && (
-        <div className="mt-4 px-4 py-2 glass rounded-lg">
-          <span className="text-slate-300 text-sm">
-            Selected: <span className="text-emerald-400 font-semibold">{selectedSquare.toUpperCase()}</span>
-            {validMoves.length > 0 && (
-              <span className="text-slate-400 ml-2">
-                ({validMoves.length} valid move{validMoves.length !== 1 ? 's' : ''})
-              </span>
-            )}
-          </span>
-        </div>
-      )}
     </div>
   );
 };
